@@ -103,3 +103,30 @@ In the web app sidebar, enter a unit number (1–8) under **Export questions by 
 The export uses the saved classifications across **all files**, independent of the currently selected file or search. A multi-unit question is included if the entered number is anywhere in its assignment list. Each deduplicated saved question appears once, in filename/question order. Original question crops preserve diagrams and answer choices. Each crop is placed on its own letter-size page with the source filename, printed question number, and assigned units; a question with multiple crops spans multiple pages. The output is image-based, so question text is not selectable. If nothing matches, the app displays a message rather than downloading an empty PDF.
 
 Classify questions with the extension first. After updating, restart `python3 app.py` and refresh the webpage to see the export control. Export requires Pillow 10.1+ (already installed in this workspace).
+
+## Scanned PDFs and OCR
+
+If a PDF consists of page images, install OCR support and launch:
+
+```sh
+cd question-browser
+./start.sh --with-ocr
+```
+
+On Fedora this installs `tesseract` and `tesseract-langpack-eng` through sudo. Once installed, the app and JSON exporter automatically try OCR when no numbered questions are detected. Tesseract adds a searchable text layer; the app then uses that layer for question boundaries while retaining the original page images for display. Originals are unchanged. Searchable copies are cached in `.ocr-cache` by file content and language so repeated imports do not repeat OCR. OCR progress appears in the terminal and can take several minutes for long PDFs.
+
+Click **Import local PDFs** after installing, or restart the service. To regenerate the question JSON for the extension:
+
+```sh
+./.venv/bin/python pdf_to_json.py /path/to/scanned-pdfs -o questions.json
+```
+
+To create a searchable PDF explicitly:
+
+```sh
+./.venv/bin/python ocr_pdf.py /path/to/scan.pdf -o /path/to/searchable.pdf
+```
+
+English is the default. For other languages, install the corresponding Tesseract language data and set `QUESTION_OCR_LANGUAGE` (for example `QUESTION_OCR_LANGUAGE=eng+spa ./start.sh --with-ocr`). If Tesseract is already installed but English data is missing, install the English language package manually.
+
+OCR is a fallback when the document has no recognized question numbers, not a complete layout recognizer. Use upright, clear scans with printed question numbers such as `1.` or `1)`. Review extracted text and crops, particularly equations. Mixed text/image documents with some recognized questions may require explicitly OCRing the scanned pages first. Automatic rotation, handwriting recognition, and multi-column question segmentation are not implemented. Tesseract is not installed in the development environment, so actual scan recognition requires installing it; fallback/cache behavior is tested.

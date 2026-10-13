@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 from PIL import Image, ImageChops, ImageDraw
 import classifications
 import unit_pdf
+from ocr_pdf import searchable_copy
 
 ROOT = Path(__file__).resolve().parent
 NS = {'h': 'http://www.w3.org/1999/xhtml'}
@@ -88,7 +89,9 @@ def split_boundary(image, low, high, scale):
 def parse_pdf(pdf):
     pages = read_pages(pdf)
     if not any(question_starts(p) for p in pages):
-        raise ValueError('No numbered questions found. Use a text-based PDF with questions such as 1. or 1). Scans need OCR first.')
+        pages = read_pages(searchable_copy(pdf))
+        if not any(question_starts(p) for p in pages):
+            raise ValueError('OCR completed but no numbered questions were detected. Check scan quality, rotation, and question numbering (1. or 1)).')
     result, current = [], None
     with tempfile.TemporaryDirectory(prefix='questions-') as tmp:
         for index, page in enumerate(pages, 1):

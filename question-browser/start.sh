@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 export PIP_CACHE_DIR="$VENV_DIR/.cache/pip"
+WITH_OCR=false
 SETUP_ONLY=false
 APP_ARGS=()
 PDF_DIR="$SCRIPT_DIR"
@@ -19,6 +20,7 @@ Existing PDFs, SQLite assignments, and JSON exports are preserved.
   ./start.sh
   ./start.sh --port 8080
   ./start.sh --pdf-dir /path/to/pdfs
+  ./start.sh --with-ocr
   ./start.sh --setup-only
 
 Stop the foreground service with Ctrl+C. The Gemini extension must be loaded
@@ -29,6 +31,7 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --setup-only) SETUP_ONLY=true; shift ;;
+    --with-ocr) WITH_OCR=true; shift ;;
     --pdf-dir)
       if (($# < 2)); then echo 'Missing value after --pdf-dir.' >&2; exit 2; fi
       PDF_DIR="$2"; APP_ARGS+=("$1" "$2"); shift 2 ;;
@@ -63,6 +66,14 @@ install_system() {
 }
 if ! command -v python3 >/dev/null 2>&1 || ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdftoppm >/dev/null 2>&1; then
   install_system
+fi
+if "$WITH_OCR" && ! command -v tesseract >/dev/null 2>&1; then
+  if command -v dnf >/dev/null 2>&1; then as_admin dnf install -y tesseract tesseract-langpack-eng
+  elif command -v apt-get >/dev/null 2>&1; then as_admin apt-get update; as_admin apt-get install -y tesseract-ocr tesseract-ocr-eng
+  elif command -v pacman >/dev/null 2>&1; then as_admin pacman -S --needed --noconfirm tesseract tesseract-data-eng
+  elif command -v brew >/dev/null 2>&1; then brew install tesseract
+  else echo 'Install Tesseract and English language data, then rerun.' >&2; exit 1
+  fi
 fi
 python3 - <<'PY'
 import sys
