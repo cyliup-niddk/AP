@@ -2,6 +2,25 @@
 
 Imports local PDFs into SQLite and displays each question when its numbered button is clicked. Runs independently of the PDF extractor app. `test1.pdf` is included from the supplied workspace file.
 
+## Install and launch with one command
+
+```sh
+cd question-browser
+./start.sh
+```
+
+The Bash launcher installs missing Python/Poppler tools using your system package manager (sudo may request your password), creates `.venv`, installs Pillow if needed, prepares `questions.json` if missing, and starts the service in the foreground. It supports Fedora/DNF, Debian/Ubuntu/APT, Arch/pacman, and macOS/Homebrew. Install Homebrew yourself if needed. Compatible system Python packages are reused within the virtual environment to avoid unnecessary downloads.
+
+Open the address printed by the app, normally **http://127.0.0.1:8001**. Press **Ctrl+C** to stop it. Existing PDFs, JSON exports, and saved assignments are preserved; normal app startup imports new or changed PDFs. An existing JSON export is not regenerated automatically—use the JSON exporter when adding PDFs for Gemini classification.
+
+```sh
+./start.sh --port 8080
+./start.sh --pdf-dir /path/to/pdfs
+./start.sh --setup-only
+```
+
+The browser extension requires a one-time manual **Load unpacked** step; the launcher prints its directory. It does not install a browser, log in to Gemini, or create a background system service.
+
 ## Run
 
 ```sh
