@@ -16,6 +16,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from PIL import Image, ImageChops, ImageDraw
 import classifications
+import portable_db
+import os
 import unit_pdf
 from ocr_pdf import searchable_copy
 
@@ -37,8 +39,10 @@ def connect(db):
     return con
 
 def initialize(db):
+    Path(db).parent.mkdir(parents=True,exist_ok=True)
     with connect(db) as con:
         classifications.initialize(con)
+        portable_db.initialize(con)
         con.executescript('''CREATE TABLE IF NOT EXISTS documents (
         id INTEGER PRIMARY KEY, filename TEXT NOT NULL UNIQUE, sha256 TEXT NOT NULL,
         imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -224,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
                     unit = int(args.get('unit',['0'])[0])
                     pdf, count = unit_pdf.build_pdf(con, unit)
                     return self.respond(pdf,kind='application/pdf',headers={'Content-Disposition':f'attachment; filename="unit-{unit}-questions.pdf"','X-Question-Count':str(count)})
-                if p.path == '/api/classifier/questions': return self.respond(classifications.queue(con, ROOT/'questions.json'))
+                if p.path == '/api/classifier/questions': return self.respond(classifications.queue(con))
                 if p.path == '/api/classifier/export': return self.respond(classifications.export(con))
                 if p.path=='/api/documents': return self.respond([dict(r) for r in con.execute('SELECT d.id,d.filename,d.imported_at,COUNT(q.id) AS count FROM documents d LEFT JOIN questions q ON q.document_id=d.id GROUP BY d.id ORDER BY filename')])
                 if p.path == '/api/questions':
@@ -258,21 +262,25 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length))
                 if not isinstance(payload,dict): raise ValueError('Expected a JSON object')
                 with connect(self.server.db) as con:
-                    result = classifications.save(con, ROOT/'questions.json', payload)
+                    result = classifications.save(con, None, payload)
                 return self.respond(result)
             except (ValueError, sqlite3.Error) as exc:
                 return self.respond({'error':str(exc)},400)
         if self.path!='/api/import':return self.respond({'error':'Not found'},404)
         if self.headers.get('Origin') not in (None, f'http://127.0.0.1:{self.server.server_port}', f'http://localhost:{self.server.server_port}'):
             return self.respond({'error':'Origin rejected'},403)
-        return self.respond(import_files(self.server.folder,self.server.db))
+        result=import_files(self.server.folder,self.server.db)
+        with connect(self.server.db) as con:portable_db.archive_library(con)
+        return self.respond(result)
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--pdf-dir',type=Path,default=ROOT);parser.add_argument('--port',type=int,default=8001);parser.add_argument('--import-only',action='store_true');args=parser.parse_args()
-    for command in ('pdftotext','pdftoppm'):
+    parser=argparse.ArgumentParser();parser.add_argument('--pdf-dir',type=Path,default=ROOT);parser.add_argument('--port',type=int,default=8001);parser.add_argument('--import-only',action='store_true');parser.add_argument('--database',type=Path,default=Path(os.environ.get('QUESTION_DB_PATH',str(ROOT/'questions.sqlite3'))));parser.add_argument('--no-import',action='store_true',help='Open a portable database without importing local PDFs');args=parser.parse_args()
+    for command in (() if args.no_import else ('pdftotext','pdftoppm')):
         if not shutil.which(command):parser.error(f'{command} is required. Install Poppler; see README.md.')
-    db=ROOT/'questions.sqlite3';initialize(db)
-    print(json.dumps(import_files(args.pdf_dir.resolve(),db),indent=2),flush=True)
+    db=args.database.expanduser().resolve();initialize(db)
+    print(f'Database: {db}',flush=True)
+    if not args.no_import:print(json.dumps(import_files(args.pdf_dir.resolve(),db),indent=2),flush=True)
+    with connect(db) as con:portable_db.archive_library(con, None if args.no_import else ROOT/'questions.json')
     if not args.import_only:
         try:
             server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)

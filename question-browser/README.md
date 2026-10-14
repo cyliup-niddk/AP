@@ -9,6 +9,22 @@ cd question-browser
 ./start.sh
 ```
 
+To choose the database location:
+
+```sh
+cd question-browser
+./start.sh --database /path/to/library.sqlite3
+```
+
+To open a portable database without importing local PDFs:
+
+```sh
+cd question-browser
+./start.sh --database /path/to/library.sqlite3 --no-import
+```
+
+Replace `/path/to/library.sqlite3` with your database path. If you are already inside `question-browser`, omit `cd question-browser`.
+
 The Bash launcher installs missing Python/Poppler tools using your system package manager (sudo may request your password), creates `.venv`, installs Pillow if needed, prepares `questions.json` if missing, and starts the service in the foreground. It supports Fedora/DNF, Debian/Ubuntu/APT, Arch/pacman, and macOS/Homebrew. Install Homebrew yourself if needed. Compatible system Python packages are reused within the virtual environment to avoid unnecessary downloads.
 
 Open the address printed by the app, normally **http://127.0.0.1:8001**. Press **Ctrl+C** to stop it. Existing PDFs, JSON exports, and saved assignments are preserved; normal app startup imports new or changed PDFs. An existing JSON export is not regenerated automatically—use the JSON exporter when adding PDFs for Gemini classification.
@@ -138,3 +154,39 @@ The importer and JSON exporter now assign their own sequential numbers (1, 2, 3,
 After updating, restart the app and import again. The changed parser automatically re-imports existing PDFs on startup. Regenerate `questions.json` for the extension using `python3 pdf_to_json.py /path/to/pdfs -o questions.json`. If generated numbering changes for a document, reclassify its new question entries.
 
 This is a heuristic for single-column multiple-choice papers with recognizable choice labels. Scans still require OCR (`./start.sh --with-ocr`). Unnumbered free-response questions without answer-choice groups, multi-column layouts, and shared passages need a separate layout-specific splitting rule. Missing printed numbers alone no longer prevents MCQ parsing. On the supplied PDF, all 42 boundaries are detected even with printed numbers removed from extracted text.
+
+## Portable database and custom database location
+
+Choose where SQLite is stored:
+
+```sh
+./start.sh --database /path/to/library.sqlite3
+# Or launch Python directly:
+python3 app.py --database /path/to/library.sqlite3
+```
+
+The parent directory is created if missing. You may also set `QUESTION_DB_PATH=/path/to/library.sqlite3`; `--database` takes precedence. The default remains `questions.sqlite3` beside the app. Changing the path opens or creates that database; it does not move the old database automatically.
+
+The database stores question text, source filename/order/page numbers, cropped PNG image bytes, complete question JSON objects in `question_archive`, unit assignments, explanations, and raw Gemini replies. The classification queue and classification writes read archived questions directly from SQLite. The original PDFs and external `questions.json` are no longer required to browse existing questions, continue classification, or generate unit PDFs. Older databases gain the archive automatically on startup, seeded from their stored images/text and available JSON export.
+
+To move the library to another machine, update/start the app once to migrate the database, then make a consistent backup:
+
+```sh
+python3 db_tools.py backup --database /path/to/library.sqlite3 -o /path/to/portable.sqlite3
+```
+
+Copy the backup and application source to the new computer, install dependencies, and open only the saved library:
+
+```sh
+./start.sh --database /path/to/portable.sqlite3 --no-import
+```
+
+`--no-import` skips local PDFs and external JSON seeding, preventing unrelated local files from being imported into the moved database. The database path is printed at startup. If manually copying a database instead of using the backup command, stop the service first.
+
+Recreate a complete question JSON export, including embedded PNGs and saved assignments:
+
+```sh
+python3 db_tools.py export-json --database /path/to/library.sqlite3 -o /path/to/restored-questions.json
+```
+
+Backup/export commands refuse to overwrite an existing output file. The portable database reconstructs extracted questions and their visual content; it does not contain the entire original source PDFs, their original vector graphics, or the application runtime itself. Keep originals separately if exact source-document recovery is needed.

@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 from pathlib import Path
+import portable_db
 
 UNITS = {
     1: 'Kinematics', 2: 'Force and Translational Dynamics',
@@ -32,9 +33,9 @@ def load_export(path):
     if not isinstance(questions, list): raise ValueError('Invalid questions.json')
     return questions
 
-def queue(con, path):
+def queue(con, path=None):
     saved = {row[0]: json.loads(row[1]) for row in con.execute('SELECT question_id,unit_numbers FROM question_classifications')}
-    return [{key: q.get(key) for key in ('id','filename','question_number','order','text','stem','sources')} | {'unit_numbers': saved.get(q['id'], []), 'unit_number': (saved[q['id']][0] if q['id'] in saved else None)} for q in load_export(path)]
+    return [{key: q.get(key) for key in ('id','filename','question_number','order','text','stem','sources')} | {'unit_numbers': saved.get(q['id'], []), 'unit_number': (saved[q['id']][0] if q['id'] in saved else None)} for q in portable_db.catalog(con,path)]
 
 def save(con, path, payload):
     qid = payload.get('question_id')
@@ -44,8 +45,8 @@ def save(con, path, payload):
     numbers = sorted(set(numbers))
     unit = numbers[0]  # Compatibility with previously installed extension versions.
 
-    question = next((q for q in load_export(path) if q['id'] == qid), None)
-    if question is None: raise ValueError('Question ID is not in questions.json. Refresh the extension queue.')
+    question = next((q for q in portable_db.catalog(con,path) if q['id'] == qid), None)
+    if question is None: raise ValueError('Question ID is not in this database. Refresh the extension queue.')
     reason, raw = payload.get('reason',''), payload.get('raw_response','')
     if not isinstance(reason,str) or not isinstance(raw,str) or len(raw)>100000: raise ValueError('Invalid response text.')
     question = dict(question, unit_numbers=numbers, unit_names=[UNITS[n] for n in numbers], unit_number=unit, unit_name=UNITS[unit], classification_reason=reason)

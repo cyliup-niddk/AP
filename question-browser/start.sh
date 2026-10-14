@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 export PIP_CACHE_DIR="$VENV_DIR/.cache/pip"
+NO_IMPORT=false
 WITH_OCR=false
 SETUP_ONLY=false
 APP_ARGS=()
@@ -18,6 +19,7 @@ Installs missing system tools using sudo (or Homebrew on macOS), prepares
 Existing PDFs, SQLite assignments, and JSON exports are preserved.
 
   ./start.sh
+  ./start.sh --database /path/to/library.sqlite3 --no-import
   ./start.sh --port 8080
   ./start.sh --pdf-dir /path/to/pdfs
   ./start.sh --with-ocr
@@ -31,6 +33,7 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --setup-only) SETUP_ONLY=true; shift ;;
+    --no-import) NO_IMPORT=true; APP_ARGS+=("$1"); shift ;;
     --with-ocr) WITH_OCR=true; shift ;;
     --pdf-dir)
       if (($# < 2)); then echo 'Missing value after --pdf-dir.' >&2; exit 2; fi
@@ -64,7 +67,7 @@ install_system() {
     exit 1
   fi
 }
-if ! command -v python3 >/dev/null 2>&1 || ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdftoppm >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null 2>&1 || { ! "$NO_IMPORT" && { ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdftoppm >/dev/null 2>&1; }; }; then
   install_system
 fi
 if "$WITH_OCR" && ! command -v tesseract >/dev/null 2>&1; then
@@ -102,7 +105,7 @@ then
   "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
 fi
 "$VENV_DIR/bin/python" -m pip check
-if [[ ! -f "$SCRIPT_DIR/questions.json" ]]; then
+if ! "$NO_IMPORT" && [[ ! -f "$SCRIPT_DIR/questions.json" ]]; then
   echo 'Preparing questions.json for the Gemini extension…'
   "$VENV_DIR/bin/python" "$SCRIPT_DIR/pdf_to_json.py" "$PDF_DIR" -o "$SCRIPT_DIR/questions.json"
 fi
