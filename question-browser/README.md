@@ -130,3 +130,11 @@ To create a searchable PDF explicitly:
 English is the default. For other languages, install the corresponding Tesseract language data and set `QUESTION_OCR_LANGUAGE` (for example `QUESTION_OCR_LANGUAGE=eng+spa ./start.sh --with-ocr`). If Tesseract is already installed but English data is missing, install the English language package manually.
 
 OCR is a fallback when the document has no recognized question numbers, not a complete layout recognizer. Use upright, clear scans with printed question numbers such as `1.` or `1)`. Review extracted text and crops, particularly equations. Mixed text/image documents with some recognized questions may require explicitly OCRing the scanned pages first. Automatic rotation, handwriting recognition, and multi-column question segmentation are not implemented. Tesseract is not installed in the development environment, so actual scan recognition requires installing it; fallback/cache behavior is tested.
+
+## Splitting questions without printed numbers
+
+The importer and JSON exporter now assign their own sequential numbers (1, 2, 3, …) per PDF, in extraction order. Printed numbers do not determine question IDs and may be absent, duplicated, or restart. For MCQs, boundaries are detected from repeated answer-choice groups `(A)`, `(B)`, `(C)` (and subsequent choices) and the question-text block preceding each group. Number markers are only a fallback hint for other formats. Original question images retain any printed labels, while extracted text and web buttons use generated numbers.
+
+After updating, restart the app and import again. The changed parser automatically re-imports existing PDFs on startup. Regenerate `questions.json` for the extension using `python3 pdf_to_json.py /path/to/pdfs -o questions.json`. If generated numbering changes for a document, reclassify its new question entries.
+
+This is a heuristic for single-column multiple-choice papers with recognizable choice labels. Scans still require OCR (`./start.sh --with-ocr`). Unnumbered free-response questions without answer-choice groups, multi-column layouts, and shared passages need a separate layout-specific splitting rule. Missing printed numbers alone no longer prevents MCQ parsing. On the supplied PDF, all 42 boundaries are detected even with printed numbers removed from extracted text.

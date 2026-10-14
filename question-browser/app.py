@@ -71,6 +71,36 @@ def question_starts(page):
             result.append((int(match[1]), line['y']))
     return result
 
+def split_starts(page):
+    """Find MCQ stems from repeated answer-choice groups, independent of numbering."""
+    lines = page['lines']
+    starts = []
+    for i, line in enumerate(lines):
+        if not re.match(r'^\(?A\s*[.)](?:\s|$)', line['text']):
+            continue
+        # Require a real answer group instead of an isolated diagram label.
+        labels = []
+        for following in lines[i:]:
+            match = re.match(r'^\(?([A-H])\s*[.)](?:\s|$)', following['text'])
+            if match:
+                if labels and match[1] == 'A': break
+                labels.append(match[1])
+        if not all(label in labels for label in ('A','B','C')): continue
+        candidates = [l for l in lines[:i] if l['x'] < page['width']*.17
+                      and len(l['text']) >= 30
+                      and not re.match(r'^\(?[A-H]\s*[.)]',l['text'])
+                      and not re.match(r'^(Directions|Instructions|Note:)',l['text'],re.I)]
+        if not candidates: continue
+        stem = candidates[-1]
+        for preceding in reversed(candidates[:-1]):
+            if stem['y']-preceding['bottom'] > 30: break
+            stem = preceding
+        printed = re.match(r'^(\d{1,3})[.)]\s+',stem['text'])
+        if not starts or stem['y'] != starts[-1][1]:
+            starts.append((int(printed[1]) if printed else None,stem['y']))
+    # Number markers remain useful hints for non-MCQ formats, never question IDs.
+    return starts or question_starts(page)
+
 def split_boundary(image, low, high, scale):
     """Prefer the widest white gutter; this preserves drawings above the next stem."""
     low, high = int(low * scale), int(high * scale)
@@ -88,14 +118,14 @@ def split_boundary(image, low, high, scale):
 
 def parse_pdf(pdf):
     pages = read_pages(pdf)
-    if not any(question_starts(p) for p in pages):
+    if not any(split_starts(p) for p in pages):
         pages = read_pages(searchable_copy(pdf))
-        if not any(question_starts(p) for p in pages):
-            raise ValueError('OCR completed but no numbered questions were detected. Check scan quality, rotation, and question numbering (1. or 1)).')
+        if not any(split_starts(p) for p in pages):
+            raise ValueError('OCR completed but no question boundaries were detected. Use clearly separated question stems and answer choices (A), (B), (C), (D).')
     result, current = [], None
     with tempfile.TemporaryDirectory(prefix='questions-') as tmp:
         for index, page in enumerate(pages, 1):
-            starts = question_starts(page)
+            starts = split_starts(page)
             if not starts and current is None: continue
             prefix = str(Path(tmp)/'page')
             subprocess.run(['pdftoppm', '-f', str(index), '-l', str(index), '-scale-to', '1440', '-singlefile', '-png', str(pdf), prefix], capture_output=True, check=True, timeout=90)
@@ -123,15 +153,19 @@ def parse_pdf(pdf):
             if starts:
                 if current and boundaries[0] > 20: segments.append((current, 10, boundaries[0]))
                 for j, (number,y) in enumerate(starts):
-                    if any(q['number']==number for q in result):
-                        raise ValueError(f'Duplicate question number {number}; use a PDF containing one question set.')
-                    current={'number':number,'text':[], 'images':[], 'visual_hashes':[]}
+                    current={'number':len(result)+1, 'source_number':number,'text':[], 'images':[], 'visual_hashes':[]}
                     result.append(current)
                     segments.append((current,boundaries[j],boundaries[j+1] if j+1<len(starts) else footer))
             elif current:
                 segments.append((current,10,footer))
             for question,top,bottom in segments:
                 text='\n'.join(l['text'] for l in page['lines'] if top<=l['y']<bottom)
+                if question.get('source_number') is not None:
+                    text=re.sub(rf'(?m)^(\s*){question["source_number"]}[.)]\s+',rf'\g<1>{question["number"]}. ',text,count=1)
+                elif not question['text']:
+                    stem_y = next((y for _,y in starts if top <= y < bottom),None)
+                    stem_line = next((l['text'] for l in page['lines'] if l['y']==stem_y),None)
+                    if stem_line: text=text.replace(stem_line,str(question['number'])+'. '+stem_line,1)
                 question['text'].append(text)
                 crop=image.crop((0,int(top*scale),image.width,int(bottom*scale)))
                 bbox=ImageChops.difference(crop,Image.new('RGB',crop.size,'white')).convert('L').point(lambda v:255 if v>20 else 0).getbbox()
@@ -144,7 +178,7 @@ def parse_pdf(pdf):
                     visual = image.crop((0,int(top*scale),image.width,int(bottom*scale)))
                     draw = ImageDraw.Draw(visual)
                     for line in page['lines']:
-                        if top <= line['y'] < bottom and re.match(rf'^{question["number"]}[.)]\s+', line['text']):
+                        if top <= line['y'] < bottom and re.match(rf'^{question.get("source_number")}[.)]\s+', line['text']):
                             draw.rectangle((0, int((line['y']-top)*scale)-2, int(70*scale), int((line['bottom']-top)*scale)+2), fill='white')
                     bounds = ImageChops.difference(visual, Image.new('RGB',visual.size,'white')).getbbox()
                     if bounds: visual = visual.crop(bounds)
@@ -156,7 +190,7 @@ def import_files(folder, db):
     with LOCK:
         for pdf in sorted(folder.glob('*.pdf')):
             try:
-                digest=hashlib.sha256(pdf.read_bytes()).hexdigest()
+                digest=hashlib.sha256(pdf.read_bytes()+b'choice-split-v2').hexdigest()
                 with connect(db) as con:
                     old=con.execute('SELECT * FROM documents WHERE filename=?',(pdf.name,)).fetchone()
                     if old and old['sha256']==digest:

@@ -10,6 +10,17 @@ class LibraryTests(unittest.TestCase):
         numbers=[n for p in pages for n,y in app.question_starts(p)]
         self.assertEqual(numbers,list(range(1,43)))
         self.assertEqual(len(pages),22)
+    def test_choice_splitting_without_printed_numbers(self):
+        import re
+        pages=app.read_pages(app.ROOT/'test1.pdf')
+        expected=[[y for _,y in app.split_starts(page)] for page in pages]
+        for page in pages:
+            for line in page['lines']:
+                line['text']=re.sub(r'^\d+[.)]\s+', '', line['text'])
+        actual=[[y for _,y in app.split_starts(page)] for page in pages]
+        self.assertEqual(actual,expected)
+        self.assertEqual(sum(map(len,actual)),42)
+
     def test_saved_questions_are_independent(self):
         with app.connect(app.ROOT/'questions.sqlite3') as con:
             rows=con.execute('SELECT number,content FROM questions q JOIN documents d ON d.id=q.document_id WHERE filename=? ORDER BY ordinal', ('test1.pdf',)).fetchall()

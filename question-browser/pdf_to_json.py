@@ -44,7 +44,7 @@ def convert(folder, recursive=False, dedupe='visual'):
                 # Conservative: do not merge matching text with different diagrams.
                 key_data['images'] = visual or [hashlib.sha256(png).hexdigest() for _, png in question['images']]
             key = hashlib.sha256(json.dumps(key_data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            source = {'filename': filename, 'question_number': question['number'], 'order': ordinal,
+            source = {'filename': filename, 'question_number': question['number'], 'order': ordinal, 'source_question_number':question.get('source_number'),
                       'pages': sorted(set(page for page, _ in question['images']))}
             if key in by_key:
                 by_key[key]['sources'].append(source)
